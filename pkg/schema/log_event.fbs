@@ -19,7 +19,7 @@ table Attribute {
 // Represents a single log event
 table LogEvent {
   // Metadata
-  timestamp:long (required);     // Unix timestamp in nanoseconds
+  timestamp:long;                // Unix timestamp in nanoseconds
   service:string (required);     // Service that generated this log
   instance_id:string;            // Unique identifier for the service instance
   trace_id:string;               // OpenTelemetry trace ID
