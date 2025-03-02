@@ -1,0 +1,46 @@
+// Log event schema for Sift
+namespace sift.schema;
+
+enum LogLevel : byte {
+  TRACE = 0,
+  DEBUG = 1,
+  INFO = 2,
+  WARN = 3,
+  ERROR = 4,
+  FATAL = 5
+}
+
+// Basic key-value structure for attributes
+table Attribute {
+  key:string (required);
+  value:string;
+}
+
+// Represents a single log event
+table LogEvent {
+  // Metadata
+  timestamp:long (required);     // Unix timestamp in nanoseconds
+  service:string (required);     // Service that generated this log
+  instance_id:string;            // Unique identifier for the service instance
+  trace_id:string;               // OpenTelemetry trace ID
+  span_id:string;                // OpenTelemetry span ID
+  
+  // Log content
+  level:LogLevel = INFO;         // Log level 
+  message:string (required);     // Log message
+  
+  // Context
+  attributes:[Attribute];        // Additional attributes/tags
+  
+  // Source
+  file:string;                   // Source file
+  line:int;                      // Line number
+  function:string;               // Function name
+  
+  // Error details (if applicable)
+  error_type:string;             // Type of error
+  error_stack:string;            // Error stack trace
+}
+
+// Root type for the FlatBuffer
+root_type LogEvent; 

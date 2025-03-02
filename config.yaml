@@ -1,0 +1,35 @@
+# Sift Configuration
+
+version: "0.1.0"
+service_name: "sift"
+log_level: "info"
+
+api:
+  port: 8080
+  host: "0.0.0.0"
+  base_url: "/api/v1"
+
+consumer:
+  brokers:
+    - "localhost:9092"
+  topic: "logs"
+  group_id: "sift-consumer"
+  max_workers: 10
+  commit_interval_ms: 5000
+  session_timeout_ms: 30000
+  rebalance_timeout_ms: 60000
+
+storage:
+  duckdb:
+    path: "./data/sift.db"
+    memory_db: false
+
+  parquet:
+    use_local_fs: true
+    local_path: "./data/archive"
+    rotation_interval_hr: 24
+    retention_days: 30
+    # AWS S3 settings (optional)
+    # s3_bucket: "sift-logs"
+    # s3_region: "us-west-2"
+    # s3_endpoint: ""  # Leave empty for AWS, set for MinIO
