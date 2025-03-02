@@ -10,17 +10,8 @@ scrape_configs:
   - job_name: "redpanda"
     static_configs:
       - targets: ["redpanda:9644"]
+    metrics_path: /metrics
 
   - job_name: "otel-collector"
     static_configs:
       - targets: ["otel-collector:8888"]
-
-  - job_name: "opentelemetry"
-    scrape_interval: 10s
-    static_configs:
-      - targets: ["otel-collector:8889"]
-
-  - job_name: "sift"
-    static_configs:
-      - targets: ["host.docker.internal:2112"]
-    metrics_path: "/metrics"

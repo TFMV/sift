@@ -3,7 +3,7 @@ version: "3"
 services:
   # Redpanda - High-performance Kafka-compatible message broker
   redpanda:
-    image: docker.redpanda.com/vectorized/redpanda:v23.3.5
+    image: redpandadata/redpanda:v23.3.5
     ports:
       - "9092:9092" # Kafka API
       - "9644:9644" # Prometheus metrics
@@ -35,7 +35,7 @@ services:
 
   # Redpanda Console - Web UI for managing Redpanda
   redpanda-console:
-    image: docker.redpanda.com/vectorized/console:v2.3.1
+    image: redpandadata/console:v2.3.1
     ports:
       - "8080:8080"
     environment:
@@ -63,15 +63,15 @@ services:
     image: prom/prometheus:v2.47.2
     ports:
       - "9090:9090"
-    volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus-data:/prometheus
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --web.console.libraries=/etc/prometheus/console_libraries
       - --web.console.templates=/etc/prometheus/consoles
       - --web.enable-lifecycle
+    volumes:
+      - prometheus-data:/prometheus
+      - ./deployments/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
 
   # OpenTelemetry Collector - Trace collection
   otel-collector:
@@ -81,7 +81,7 @@ services:
       - "4318:4318" # OTLP HTTP
       - "8888:8888" # Prometheus metrics
     volumes:
-      - ./otel/config.yaml:/etc/otel/config.yaml
+      - ./deployments/otel/config.yaml:/etc/otel/config.yaml
     command: ["--config=/etc/otel/config.yaml"]
     depends_on:
       - prometheus

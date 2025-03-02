@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/TFMV/sift/internal/api"
 	"github.com/TFMV/sift/internal/consumer"
@@ -61,17 +62,25 @@ func main() {
 		logger.Fatal("Failed to initialize API server", zap.Error(err))
 	}
 
+	// Create a cancellation signal
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Start consumer in the background
+	consumerErrCh := make(chan error, 1)
 	go func() {
 		if err := cons.Start(); err != nil {
-			logger.Fatal("Failed to start consumer", zap.Error(err))
+			logger.Error("Consumer error", zap.Error(err))
+			consumerErrCh <- err
 		}
 	}()
 
 	// Start API server in the background
+	apiErrCh := make(chan error, 1)
 	go func() {
 		if err := apiServer.Start(); err != nil {
-			logger.Fatal("Failed to start API server", zap.Error(err))
+			logger.Error("API server error", zap.Error(err))
+			apiErrCh <- err
 		}
 	}()
 
@@ -83,14 +92,34 @@ func main() {
 	// Graceful shutdown
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	<-sigCh
 
-	logger.Info("Shutting down...")
+	// Wait for shutdown signal or error
+	select {
+	case <-sigCh:
+		logger.Info("Shutdown signal received")
+	case err := <-consumerErrCh:
+		logger.Error("Consumer failed", zap.Error(err))
+	case err := <-apiErrCh:
+		logger.Error("API server failed", zap.Error(err))
+	}
 
+	// Cancel context to signal shutdown to all components
+	cancel()
+
+	// Set a timeout for graceful shutdown
+	time.AfterFunc(15*time.Second, func() {
+		logger.Error("Graceful shutdown timed out, forcing exit")
+		os.Exit(1)
+	})
+
+	logger.Info("Gracefully shutting down...")
+
+	// Stop consumer
 	if err := cons.Stop(); err != nil {
 		logger.Error("Error stopping consumer", zap.Error(err))
 	}
 
+	// Stop API server
 	if err := apiServer.Stop(); err != nil {
 		logger.Error("Error stopping API server", zap.Error(err))
 	}

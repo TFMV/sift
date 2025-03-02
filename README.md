@@ -1,49 +1,87 @@
-# Sift - High-Throughput Event Log Processor
+# 🚀 Sift - High-Throughput Event Log Processor
 
-Sift is a high-performance event log processor designed to ingest, store, and query massive volumes of structured log events in real-time. Built with Go, Flatbuffers, and Redpanda, it optimizes log storage and retrieval with minimal overhead, providing a scalable and efficient solution for analytics, monitoring, and observability workloads.
+**Blazing fast log ingestion. Zero-copy efficiency. Real-time analytics.**  
+Sift is the log processing engine built for **speed**, **scalability**, and **simplicity**.  
 
-## Design Goals
+🔥 **Flatbuffers for ultra-lightweight serialization**  
+⚡ **Redpanda for high-throughput event streaming**  
+📊 **DuckDB & Parquet for analytics-ready storage**  
+🖥️ **Fiber-powered API for low-latency queries**  
 
-- **Efficient Log Ingestion**: Minimize serialization overhead using Flatbuffers and leverage Redpanda as a fast, Kafka-compatible event broker.
-- **High-Throughput Processing**: Use Go's concurrency model to parallelize event processing, allowing for multi-core efficiency.
-- **Scalable Storage**: Store logs in DuckDB (for queryable in-memory analytics) and Parquet (for efficient long-term storage).
-- **Fast Query API**: Provide an optimized Fiber-based API for querying log data, exposing both raw and aggregated insights.
-- **Observability**: Integrate Zap logging for high-performance structured logging and OpenTelemetry for tracing.
+## 🎯 Why Sift?
 
-## Core Components & Architecture
+Modern log pipelines are **slow** and **bloated**—parsing JSON, serializing protobufs, struggling with backpressure.  
+Sift **eliminates** these bottlenecks with an **event-driven, memory-efficient architecture** designed for real-time workloads.
 
-### 1. Log Ingestion Pipeline
+### ✅ Design Goals
 
-- Event producers send structured logs as Flatbuffer-encoded messages to Redpanda
-- Sift consumers process logs in parallel using Go's concurrency features
-- Metrics collection via Prometheus
+- **🚀 Max Performance** – Process millions of logs per second using Go's concurrency model.
+- **📡 Zero Overhead** – Flatbuffers enable instant deserialization (no GC pauses, no allocations).
+- **🔍 Query at the Speed of Light** – In-memory DuckDB for hot storage, Parquet for long-term retention.
+- **🔗 Simple & Scalable** – Redpanda-based ingestion, easy horizontal scaling.
 
-### 2. Log Storage
+## 🛠️ Core Architecture
 
-- Short-term storage: DuckDB for fast, in-memory columnar storage
-- Long-term storage: Parquet files on object storage (S3, GCS, MinIO)
-- Storage manager handles data retention policies and ETL
+### 1️⃣ Log Ingestion Pipeline
 
-### 3. Query API
+🔹 **Producers → Redpanda**  
 
-- HTTP/gRPC endpoints for log querying
-- SQL-like syntax for complex queries
-- Authorization via PropelAuth or JWT
+- Microservices, applications, and external sources send structured logs.  
+- Logs are Flatbuffer-encoded, ensuring ultra-low CPU & memory overhead.  
 
-### 4. Observability & Logging
+🔹 **Sift Consumer → Redpanda**  
 
-- Structured logging with Zap
-- Monitoring with Prometheus and Grafana
-- Distributed tracing with OpenTelemetry
+- Parallel message processing with goroutines & worker pools.  
+- Metrics collection via Prometheus.  
 
-## Getting Started
+### 2️⃣ High-Performance Storage
+
+- **🟢 Hot Storage**: DuckDB for fast, in-memory queries (supports aggregations, filtering, indexing).  
+- **🔵 Cold Storage**: Parquet on S3/MinIO for long-term, cost-effective retention.  
+- **🛠 Storage Manager**: Automatically flushes old logs from DuckDB → Parquet.  
+
+### 3️⃣ Query API (Fiber-powered)
+
+Sift exposes a blazing-fast query API for log retrieval and analytics.
+
+🔹 **Query Examples**
+
+```bash
+curl "http://localhost:8080/logs?service=auth&range=last_10m"
+```
+
+```json
+{
+  "service": "auth",
+  "errors": 27,
+  "avg_latency_ms": 5.3
+}
+```
+
+🔹 **Endpoints**
+
+- GET /logs?filter=service:web&range=last_hour
+- POST /logs/query → Supports SQL-like syntax
+- GET /stats?metric=error_rate
+
+🔹 **Security & Authentication**
+
+- 🔐 Multi-tenant auth with PropelAuth or JWT.
+
+### 4️⃣ Observability & Logging
+
+- 📄 Structured Logging with Zap.
+- 📊 Real-time Monitoring via Prometheus + Grafana.
+- 📡 OpenTelemetry for distributed tracing.
+- 📍 Exposes /metrics for easy observability.
+
+## 🏁 Getting Started
 
 ### Prerequisites
 
 - Go 1.24+
-- Docker (for local development)
-- Redpanda
-- DuckDB
+- Docker (for local Redpanda & storage)
+- DuckDB (optional for in-memory queries)
 
 ### Installation
 
@@ -56,10 +94,10 @@ go mod tidy
 ### Running Locally
 
 ```bash
-docker-compose up -d  # Start dependencies
+docker-compose up -d  # Start Redpanda, MinIO, and DuckDB
 go run cmd/sift/main.go
 ```
 
-## License
+## 📜 License
 
 MIT. See [LICENSE](LICENSE) file for details.

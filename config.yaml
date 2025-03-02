@@ -5,7 +5,7 @@ service_name: "sift"
 log_level: "info"
 
 api:
-  port: 8080
+  port: 5555
   host: "0.0.0.0"
   base_url: "/api/v1"
 
