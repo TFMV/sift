@@ -188,10 +188,16 @@ func (s *Storage) TriggerFlush() {
 
 // initTables initializes the database tables
 func (s *Storage) initTables() error {
+	// Create sequence for log_events table
+	_, err := s.db.Exec(`CREATE SEQUENCE IF NOT EXISTS log_events_id_seq START 1`)
+	if err != nil {
+		return fmt.Errorf("failed to create sequence: %w", err)
+	}
+
 	// Create log_events table
-	_, err := s.db.Exec(`
+	_, err = s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS log_events (
-			id BIGINT PRIMARY KEY AUTO_INCREMENT,
+			id BIGINT PRIMARY KEY DEFAULT nextval('log_events_id_seq'),
 			timestamp TIMESTAMP,
 			service VARCHAR(255),
 			instance_id VARCHAR(255),
