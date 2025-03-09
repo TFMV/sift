@@ -5,16 +5,21 @@ import (
 	"sync"
 	"time"
 
-	"github.com/TFMV/sift/internal/storage"
 	"github.com/TFMV/sift/pkg/config"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"go.uber.org/zap"
 )
 
+// ConsumerStorageInterface defines the interface for storage operations needed by the consumer
+type ConsumerStorageInterface interface {
+	StoreLogEvent(data []byte) error
+	TriggerFlush()
+}
+
 // Consumer represents a Redpanda/Kafka consumer for log events
 type Consumer struct {
 	client     *kgo.Client
-	storage    *storage.Storage
+	storage    ConsumerStorageInterface
 	logger     *zap.Logger
 	config     *config.Config
 	workerPool chan struct{}
@@ -24,7 +29,7 @@ type Consumer struct {
 }
 
 // NewConsumer creates a new Redpanda/Kafka consumer
-func NewConsumer(cfg *config.Config, store *storage.Storage, logger *zap.Logger) (*Consumer, error) {
+func NewConsumer(cfg *config.Config, store ConsumerStorageInterface, logger *zap.Logger) (*Consumer, error) {
 	// Create Kafka client options
 	opts := []kgo.Opt{
 		kgo.SeedBrokers(cfg.Consumer.Brokers...),

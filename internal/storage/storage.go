@@ -9,7 +9,11 @@ import (
 	"time"
 
 	"github.com/TFMV/sift/pkg/config"
+	"github.com/TFMV/sift/pkg/schema/generated/sift/schema"
 	_ "github.com/marcboeker/go-duckdb"
+	"github.com/xitongsys/parquet-go-source/local"
+	"github.com/xitongsys/parquet-go/parquet"
+	"github.com/xitongsys/parquet-go/writer"
 	"go.uber.org/zap"
 )
 
@@ -82,25 +86,70 @@ func (s *Storage) Close() error {
 
 // StoreLogEvent stores a log event from a Flatbuffer
 func (s *Storage) StoreLogEvent(data []byte) error {
-	// Deserialize Flatbuffer and insert into database
-	// This is just a placeholder implementation
-	// In a real implementation, we would use the generated Flatbuffers code
+	// Deserialize Flatbuffer
+	logEvent := schema.GetRootAsLogEvent(data, 0)
+
+	// Extract fields from the Flatbuffer
+	timestamp := time.Unix(0, logEvent.Timestamp())
+	service := string(logEvent.Service())
+	instanceID := string(logEvent.InstanceId())
+	traceID := string(logEvent.TraceId())
+	spanID := string(logEvent.SpanId())
+	level := logEvent.Level()
+	message := string(logEvent.Message())
+
+	// Extract file, line, function
+	file := string(logEvent.File())
+	line := logEvent.Line()
+	function := string(logEvent.Function())
+
+	// Extract error details if present
+	errorType := string(logEvent.ErrorType())
+	errorStack := string(logEvent.ErrorStack())
+
+	// Extract attributes as JSON
+	attributes := "[]"
+	if logEvent.AttributesLength() > 0 {
+		// Simple JSON array construction for attributes
+		attributesJSON := "["
+		for i := 0; i < logEvent.AttributesLength(); i++ {
+			attr := new(schema.Attribute)
+			if logEvent.Attributes(attr, i) {
+				if i > 0 {
+					attributesJSON += ","
+				}
+				key := string(attr.Key())
+				value := string(attr.Value())
+				attributesJSON += fmt.Sprintf(`{"key":"%s","value":"%s"}`, key, value)
+			}
+		}
+		attributesJSON += "]"
+		attributes = attributesJSON
+	}
 
 	// Acquire write lock
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	// Insert into DuckDB
-	// In a real implementation, we would extract fields from the Flatbuffer
+	// Insert into DuckDB with actual values
 	_, err := s.db.Exec(`
 		INSERT INTO log_events (
-			timestamp, service, level, message
+			timestamp, service, instance_id, trace_id, span_id, 
+			level, message, attributes, file, line, function,
+			error_type, error_stack
 		) VALUES (
-			current_timestamp, 'placeholder', 'INFO', 'placeholder'
+			?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 		)
-	`)
+	`,
+		timestamp, service, instanceID, traceID, spanID,
+		int(level), message, attributes, file, line, function,
+		errorType, errorStack)
 
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to insert log event: %w", err)
+	}
+
+	return nil
 }
 
 // QueryLogs queries logs with the given filter
@@ -194,7 +243,7 @@ func (s *Storage) initTables() error {
 		return fmt.Errorf("failed to create sequence: %w", err)
 	}
 
-	// Create log_events table
+	// Create log_events table with compression
 	_, err = s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS log_events (
 			id BIGINT PRIMARY KEY DEFAULT nextval('log_events_id_seq'),
@@ -203,7 +252,7 @@ func (s *Storage) initTables() error {
 			instance_id VARCHAR(255),
 			trace_id VARCHAR(32),
 			span_id VARCHAR(16),
-			level VARCHAR(10),
+			level INTEGER,
 			message TEXT,
 			attributes JSON,
 			file VARCHAR(255),
@@ -211,7 +260,7 @@ func (s *Storage) initTables() error {
 			function VARCHAR(255),
 			error_type VARCHAR(255),
 			error_stack TEXT
-		)
+		) WITH (compression = 'zstd')
 	`)
 
 	if err != nil {
@@ -250,14 +299,32 @@ func (s *Storage) startBackgroundTasks() {
 					s.logger.Error("Failed to flush to Parquet", zap.Error(err))
 				}
 			case <-s.stopChan:
-				// Final flush on shutdown
+				// Final flush before stopping
 				if err := s.flushToParquet(); err != nil {
-					s.logger.Error("Failed to flush to Parquet on shutdown", zap.Error(err))
+					s.logger.Error("Failed to flush to Parquet during shutdown", zap.Error(err))
 				}
 				return
 			}
 		}
 	}()
+}
+
+// LogEventParquet represents a log event for Parquet serialization
+type LogEventParquet struct {
+	ID         int64  `parquet:"name=id, type=INT64"`
+	Timestamp  int64  `parquet:"name=timestamp, type=INT64"`
+	Service    string `parquet:"name=service, type=BYTE_ARRAY, convertedtype=UTF8"`
+	InstanceID string `parquet:"name=instance_id, type=BYTE_ARRAY, convertedtype=UTF8"`
+	TraceID    string `parquet:"name=trace_id, type=BYTE_ARRAY, convertedtype=UTF8"`
+	SpanID     string `parquet:"name=span_id, type=BYTE_ARRAY, convertedtype=UTF8"`
+	Level      int32  `parquet:"name=level, type=INT32"`
+	Message    string `parquet:"name=message, type=BYTE_ARRAY, convertedtype=UTF8"`
+	Attributes string `parquet:"name=attributes, type=BYTE_ARRAY, convertedtype=UTF8"`
+	File       string `parquet:"name=file, type=BYTE_ARRAY, convertedtype=UTF8"`
+	Line       int32  `parquet:"name=line, type=INT32"`
+	Function   string `parquet:"name=function, type=BYTE_ARRAY, convertedtype=UTF8"`
+	ErrorType  string `parquet:"name=error_type, type=BYTE_ARRAY, convertedtype=UTF8"`
+	ErrorStack string `parquet:"name=error_stack, type=BYTE_ARRAY, convertedtype=UTF8"`
 }
 
 // flushToParquet flushes data from DuckDB to Parquet
@@ -273,7 +340,11 @@ func (s *Storage) flushToParquet() error {
 
 	// Query records to flush
 	rows, err := s.db.Query(`
-		SELECT * FROM log_events 
+		SELECT 
+			id, timestamp, service, instance_id, trace_id, span_id, 
+			level, message, attributes, file, line, function,
+			error_type, error_stack
+		FROM log_events 
 		WHERE timestamp < ?
 		ORDER BY timestamp
 	`, cutoffTime)
@@ -294,25 +365,104 @@ func (s *Storage) flushToParquet() error {
 		fmt.Sprintf("logs_%s.parquet", time.Now().Format("20060102_150405")),
 	)
 
-	// Create Parquet file
-	file, err := os.Create(parquetFile)
+	// Create Parquet file using the local file source
+	fw, err := local.NewLocalFileWriter(parquetFile)
 	if err != nil {
-		return fmt.Errorf("failed to create Parquet file: %w", err)
+		return fmt.Errorf("failed to create Parquet file writer: %w", err)
 	}
-	defer file.Close()
+	defer fw.Close()
 
-	// In a real implementation, we would use the Parquet library to write the file
-	// This is just a placeholder
-	s.logger.Info("Flushed data to Parquet", zap.String("file", parquetFile))
-
-	// Delete flushed records from DuckDB
-	_, err = s.db.Exec(`
-		DELETE FROM log_events 
-		WHERE timestamp < ?
-	`, cutoffTime)
-
+	// Create Parquet writer
+	pw, err := writer.NewParquetWriter(fw, new(LogEventParquet), 4)
 	if err != nil {
-		return fmt.Errorf("failed to delete flushed logs: %w", err)
+		return fmt.Errorf("failed to create Parquet writer: %w", err)
+	}
+
+	// Set compression
+	pw.CompressionType = parquet.CompressionCodec_SNAPPY
+
+	// Write records to Parquet file
+	rowCount := 0
+	for rows.Next() {
+		var (
+			id         int64
+			timestamp  time.Time
+			service    string
+			instanceID string
+			traceID    string
+			spanID     string
+			level      int32
+			message    string
+			attributes string
+			file       string
+			line       int32
+			function   string
+			errorType  string
+			errorStack string
+		)
+
+		if err := rows.Scan(
+			&id, &timestamp, &service, &instanceID, &traceID, &spanID,
+			&level, &message, &attributes, &file, &line, &function,
+			&errorType, &errorStack,
+		); err != nil {
+			return fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		// Create Parquet record
+		record := LogEventParquet{
+			ID:         id,
+			Timestamp:  timestamp.UnixNano(),
+			Service:    service,
+			InstanceID: instanceID,
+			TraceID:    traceID,
+			SpanID:     spanID,
+			Level:      level,
+			Message:    message,
+			Attributes: attributes,
+			File:       file,
+			Line:       line,
+			Function:   function,
+			ErrorType:  errorType,
+			ErrorStack: errorStack,
+		}
+
+		// Write record to Parquet file
+		if err := pw.Write(record); err != nil {
+			return fmt.Errorf("failed to write record to Parquet: %w", err)
+		}
+
+		rowCount++
+	}
+
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	// Close Parquet writer
+	if err := pw.WriteStop(); err != nil {
+		return fmt.Errorf("failed to close Parquet writer: %w", err)
+	}
+
+	s.logger.Info("Flushed data to Parquet",
+		zap.String("file", parquetFile),
+		zap.Int("rows", rowCount))
+
+	// Delete flushed records from DuckDB if we successfully wrote them to Parquet
+	if rowCount > 0 {
+		result, err := s.db.Exec(`
+			DELETE FROM log_events 
+			WHERE timestamp < ?
+		`, cutoffTime)
+
+		if err != nil {
+			return fmt.Errorf("failed to delete flushed logs: %w", err)
+		}
+
+		deletedRows, _ := result.RowsAffected()
+		s.logger.Info("Deleted flushed logs from DuckDB", zap.Int64("rows", deletedRows))
+	} else {
+		s.logger.Info("No logs to flush")
 	}
 
 	return nil
