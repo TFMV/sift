@@ -9,7 +9,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/TFMV/sift/internal/storage"
 	"github.com/TFMV/sift/pkg/config"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/compress"
@@ -22,16 +21,22 @@ import (
 	"go.uber.org/zap"
 )
 
+// StorageInterface defines the interface for storage operations needed by the API
+type StorageInterface interface {
+	QueryLogs(filter map[string]interface{}, limit int, offset int) ([]map[string]interface{}, error)
+	TriggerFlush()
+}
+
 // Server represents the API server
 type Server struct {
 	app     *fiber.App
 	config  *config.Config
-	storage *storage.Storage
+	storage StorageInterface
 	logger  *zap.Logger
 }
 
 // NewServer creates a new API server
-func NewServer(cfg *config.Config, store *storage.Storage, logger *zap.Logger) (*Server, error) {
+func NewServer(cfg *config.Config, store StorageInterface, logger *zap.Logger) (*Server, error) {
 	// Create Fiber app with enhanced configuration
 	app := fiber.New(fiber.Config{
 		AppName:               "Sift",
